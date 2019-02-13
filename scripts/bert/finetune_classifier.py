@@ -211,7 +211,7 @@ def preprocess_data(tokenizer, task, batch_size, dev_batch_size, max_len):
         tokenizer,
         max_len,
         labels=task.get_labels(),
-        pad=False,
+        pad=True,
         pair=task.is_pair,
         label_dtype='float32' if not task.get_labels() else 'int32')
 

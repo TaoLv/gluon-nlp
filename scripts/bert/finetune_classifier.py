@@ -135,6 +135,18 @@ parser.add_argument(
     'for both bert_24_1024_16 and bert_12_768_12.'
     '\'wiki_cn\', \'wiki_multilingual\' and \'wiki_multilingual_cased\' for bert_12_768_12 only.'
 )
+parser.add_argument(
+    '--save_dir',
+    type=str,
+    default='out_dir',
+    help='directory path to save the final model.'
+)
+parser.add_argument(
+    '--run_type',
+    type=str,
+    default='train',
+    help='train or inference, default is train.'
+)
 
 args = parser.parse_args()
 
@@ -266,6 +278,8 @@ def evaluate(metric):
 
 def train(metric):
     """Training function."""
+
+    logging.info('|----- Now we are doing {} training at BERT !'.format(ctx))
     optimizer_params = {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
     try:
         trainer = gluon.Trainer(
@@ -289,6 +303,7 @@ def train(metric):
     warmup_ratio = args.warmup_ratio
     num_warmup_steps = int(num_train_steps * warmup_ratio)
     step_num = 0
+    best_acc = 0
 
     # Do not apply weight decay on LayerNorm and bias terms
     for _, v in model.collect_params('.*beta|.*gamma|.*bias').items():
@@ -306,6 +321,9 @@ def train(metric):
         metric.reset()
         step_loss = 0
         tic = time.time()
+        #
+        tokens = 0
+        speed_log_start_time = time.time()
         for batch_id, seqs in enumerate(train_data):
             # set grad to zero for gradient accumulation
             if accumulate:
@@ -325,6 +343,7 @@ def train(metric):
             # forward and backward
             with mx.autograd.record():
                 input_ids, valid_length, type_ids, label = seqs
+                tokens += valid_length.sum().asscalar()
                 out = model(
                     input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
                     valid_length.astype('float32').as_in_context(ctx))
@@ -342,17 +361,85 @@ def train(metric):
                 if not isinstance(metric_nm, list):
                     metric_nm = [metric_nm]
                     metric_val = [metric_val]
-                eval_str = '[Epoch {} Batch {}/{}] loss={:.4f}, lr={:.7f}, metrics=' + \
+                eval_str = '[Epoch {} Batch {}/{}] loss={:.4f}, speed={:.4f} tokens/s, lr={:.7f}, metrics=' + \
                     ','.join([i + ':{:.4f}' for i in metric_nm])
                 logging.info(eval_str.format(epoch_id + 1, batch_id + 1, len(train_data), \
                     step_loss / args.log_interval, \
-                    trainer.learning_rate, *metric_val))
+                    tokens / (time.time() - speed_log_start_time), \
+                    trainer.learning_rate, *metric_val,))
                 step_loss = 0
+                tokens = 0
+                speed_log_start_time = time.time()
+
         mx.nd.waitall()
         evaluate(metric)
         toc = time.time()
         logging.info('Time cost={:.1f}s'.format(toc - tic))
         tic = toc
+
+        validation_acc = metric.get()[1][0]
+        if validation_acc > best_acc:
+            save_path = os.path.join(args.save_dir, 'valid_best.params')
+            model.save_parameters(save_path)
+            best_acc = validation_acc
+            logging.info('the best acc is updata, and valid_best params saved as:{}'.format(save_path))
+
+
+def inference(metric):
+    """inference function."""
+
+    logging.info('|----- Now we are doing {} inference at BERT !'.format(ctx))
+    model = BERTClassifier(
+        bert, dropout=0.1, num_classes=len(task.get_labels()))
+    para_name = 'valid_best.params'
+    model.load_parameters(os.path.join(args.save_dir, para_name), ctx=ctx)
+
+    # make profiling
+    profile_name = "inference_profile_" + ('cpu' if ctx == mx.cpu() else 'gpu') + '.json'
+    print("profile_name: " + profile_name)
+    mx.profiler.set_config(profile_symbolic=True, profile_imperative=True, profile_memory=False,
+                           profile_api=False, filename=profile_name)
+    mx.profiler.set_state('run')
+    ###
+
+    for epoch_id in range(1):
+        metric.reset()
+        step_loss = 0
+        tic = time.time()
+        #
+        tokens = 0
+        speed_log_start_time = time.time()
+        for batch_id, seqs in enumerate(train_data):
+
+            input_ids, valid_length, type_ids, label = seqs
+            tokens += valid_length.sum().asscalar()
+            out = model(
+                input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
+                valid_length.astype('float32').as_in_context(ctx))
+            ls = loss_function(out, label.as_in_context(ctx)).mean()
+
+            step_loss += ls.asscalar()
+            metric.update([label], [out])
+
+            if (batch_id + 1) % (args.log_interval) == 0:
+                metric_nm, metric_val = metric.get()
+                if not isinstance(metric_nm, list):
+                    metric_nm = [metric_nm]
+                    metric_val = [metric_val]
+                eval_str = '[Epoch {} Batch {}/{}] loss={:.4f}, speed={:.4f} tokens/s, metrics=' + \
+                    ','.join([i + ':{:.4f}' for i in metric_nm])
+                logging.info(eval_str.format(epoch_id + 1, batch_id + 1, len(train_data), \
+                    step_loss / args.log_interval, \
+                    tokens / (time.time() - speed_log_start_time), \
+                    *metric_val,))
+                step_loss = 0
+                tokens = 0
+                speed_log_start_time = time.time()
+        mx.nd.waitall()
+
+    # profiling end
+    mx.profiler.set_state('stop')
+    ###
 
 
 if __name__ == '__main__':
@@ -362,4 +449,10 @@ if __name__ == '__main__':
             'Setting MXNET_GPU_MEM_POOL_TYPE="Round" may lead to higher memory '
             'usage and faster speed. If you encounter OOM errors, please unset '
             'this environment variable.')
-    train(task.get_metric())
+    if args.run_type == 'train':
+        train(task.get_metric())
+    elif args.run_type == 'inference':
+        inference(task.get_metric())
+    else:
+        logging.info('please input the correct run type, train or inference.')
+

@@ -34,7 +34,7 @@ Use the following command to fine-tune the BERT model for classification on the 
 
 .. code-block:: console
 
-   $ MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=glue_data finetune_classifier.py --task_name MRPC --batch_size 32 --optimizer bertadam --epochs 3 --gpu --lr 2e-5
+   $ MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=glue_data python3 finetune_classifier.py --task_name MRPC --batch_size 32 --optimizer bertadam --epochs 3 --gpu --lr 2e-5
 
 It gets validation accuracy of `88.7% <https://raw.githubusercontent.com/dmlc/web-data/master/gluonnlp/logs/bert/finetuned_mrpc.log>`_, whereas the the original Tensorflow implementation give evaluation results between 84% and 88%.
 
@@ -44,5 +44,13 @@ It gets validation accuracy of `88.7% <https://raw.githubusercontent.com/dmlc/we
 
 It gets RTE validation accuracy of `70.8% <https://raw.githubusercontent.com/dmlc/web-data/master/gluonnlp/logs/bert/finetuned_rte.log>`_
 , whereas the the original Tensorflow implementation give evaluation results 66.4%.
+
+Use the following command to make inference of fine-tuned BERT model for classification on the GLUE(MRPC) dataset.
+
+.. code-block:: console
+
+   $ MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=glue_data python3 finetune_classifier.py --task_name MRPC --batch_size 32 --run_type inference
+
+before doing inference, please first doing training at least once time to save fine-tuned parameters.
 
 Some other tasks can be modeled with `--task_name` parameter.

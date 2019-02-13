@@ -279,7 +279,7 @@ def evaluate(metric):
 def train(metric):
     """Training function."""
 
-    logging.info('|----- Now we are doing {} training at BERT !'.format(ctx))
+    logging.info('|----- Now we are doing BERT training at {} !'.format(ctx))
     optimizer_params = {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
     try:
         trainer = gluon.Trainer(
@@ -321,9 +321,7 @@ def train(metric):
         metric.reset()
         step_loss = 0
         tic = time.time()
-        #
-        tokens = 0
-        speed_log_start_time = time.time()
+
         for batch_id, seqs in enumerate(train_data):
             # set grad to zero for gradient accumulation
             if accumulate:
@@ -343,7 +341,6 @@ def train(metric):
             # forward and backward
             with mx.autograd.record():
                 input_ids, valid_length, type_ids, label = seqs
-                tokens += valid_length.sum().asscalar()
                 out = model(
                     input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
                     valid_length.astype('float32').as_in_context(ctx))
@@ -361,22 +358,19 @@ def train(metric):
                 if not isinstance(metric_nm, list):
                     metric_nm = [metric_nm]
                     metric_val = [metric_val]
-                eval_str = '[Epoch {} Batch {}/{}] loss={:.4f}, speed={:.4f} tokens/s, lr={:.7f}, metrics=' + \
+                eval_str = '[Epoch {} Batch {}/{}] loss={:.4f}, lr={:.7f}, metrics=' + \
                     ','.join([i + ':{:.4f}' for i in metric_nm])
                 logging.info(eval_str.format(epoch_id + 1, batch_id + 1, len(train_data), \
                     step_loss / args.log_interval, \
-                    tokens / (time.time() - speed_log_start_time), \
                     trainer.learning_rate, *metric_val,))
                 step_loss = 0
-                tokens = 0
-                speed_log_start_time = time.time()
 
         mx.nd.waitall()
         evaluate(metric)
         toc = time.time()
         logging.info('Time cost={:.1f}s'.format(toc - tic))
-        tic = toc
 
+        # Save parameters
         validation_acc = metric.get()[1][0]
         if validation_acc > best_acc:
             save_path = os.path.join(args.save_dir, 'valid_best.params')
@@ -388,31 +382,20 @@ def train(metric):
 def inference(metric):
     """inference function."""
 
-    logging.info('|----- Now we are doing {} inference at BERT !'.format(ctx))
+    logging.info('|----- Now we are doing BERT inference at {} !'.format(ctx))
     model = BERTClassifier(
         bert, dropout=0.1, num_classes=len(task.get_labels()))
     para_name = 'valid_best.params'
     model.load_parameters(os.path.join(args.save_dir, para_name), ctx=ctx)
 
-    # make profiling
-    profile_name = "inference_profile_" + ('cpu' if ctx == mx.cpu() else 'gpu') + '.json'
-    print("profile_name: " + profile_name)
-    mx.profiler.set_config(profile_symbolic=True, profile_imperative=True, profile_memory=False,
-                           profile_api=False, filename=profile_name)
-    mx.profiler.set_state('run')
-    ###
-
     for epoch_id in range(1):
         metric.reset()
         step_loss = 0
         tic = time.time()
-        #
-        tokens = 0
-        speed_log_start_time = time.time()
+
         for batch_id, seqs in enumerate(train_data):
 
             input_ids, valid_length, type_ids, label = seqs
-            tokens += valid_length.sum().asscalar()
             out = model(
                 input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
                 valid_length.astype('float32').as_in_context(ctx))
@@ -426,20 +409,17 @@ def inference(metric):
                 if not isinstance(metric_nm, list):
                     metric_nm = [metric_nm]
                     metric_val = [metric_val]
-                eval_str = '[Epoch {} Batch {}/{}] loss={:.4f}, speed={:.4f} tokens/s, metrics=' + \
+                eval_str = '[Epoch {} Batch {}/{}] loss={:.4f}, metrics=' + \
                     ','.join([i + ':{:.4f}' for i in metric_nm])
                 logging.info(eval_str.format(epoch_id + 1, batch_id + 1, len(train_data), \
                     step_loss / args.log_interval, \
-                    tokens / (time.time() - speed_log_start_time), \
                     *metric_val,))
                 step_loss = 0
-                tokens = 0
-                speed_log_start_time = time.time()
+
         mx.nd.waitall()
 
-    # profiling end
-    mx.profiler.set_state('stop')
-    ###
+    toc = time.time()
+    logging.info('Time cost={:.1f}s'.format(toc - tic))
 
 
 if __name__ == '__main__':

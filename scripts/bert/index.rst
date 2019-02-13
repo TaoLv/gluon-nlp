@@ -49,7 +49,7 @@ Use the following command to make inference of fine-tuned BERT model for classif
 
 .. code-block:: console
 
-   $ MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=glue_data python3 finetune_classifier.py --task_name MRPC --batch_size 32 --run_type inference
+   $ GLUE_DIR=glue_data python3 finetune_classifier.py --task_name MRPC --batch_size 32 --run_type inference
 
 before doing inference, please first doing training at least once time to save fine-tuned parameters.
 

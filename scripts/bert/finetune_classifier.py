@@ -418,8 +418,8 @@ def inference(metric):
 
         mx.nd.waitall()
 
-    toc = time.time()
-    logging.info('Time cost={:.1f}s'.format(toc - tic))
+        toc = time.time()
+        logging.info('Time cost={:.1f}s'.format(toc - tic))
 
 
 if __name__ == '__main__':

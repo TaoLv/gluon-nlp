@@ -370,13 +370,14 @@ def train(metric):
         toc = time.time()
         logging.info('Time cost={:.1f}s'.format(toc - tic))
 
-        # Save parameters
-        validation_acc = metric.get()[1][0]
-        if validation_acc > best_acc:
-            save_path = os.path.join(args.save_dir, 'valid_best.params')
-            model.save_parameters(save_path)
-            best_acc = validation_acc
-            logging.info('the best acc is updata, and valid_best params saved as:{}'.format(save_path))
+        # Save parameters for MRPC task
+        if task_name in ['MRPC']:
+            validation_acc = metric.get()[1][0]
+            if validation_acc > best_acc:
+                save_path = os.path.join(args.save_dir, 'MRPC_valid_best.params')
+                model.save_parameters(save_path)
+                best_acc = validation_acc
+                logging.info('the best acc is updata, and valid_best params saved as:{}'.format(save_path))
 
 
 def inference(metric):
@@ -385,7 +386,7 @@ def inference(metric):
     logging.info('|----- Now we are doing BERT inference at {} !'.format(ctx))
     model = BERTClassifier(
         bert, dropout=0.1, num_classes=len(task.get_labels()))
-    para_name = 'valid_best.params'
+    para_name = 'MRPC_valid_best.params'
     model.load_parameters(os.path.join(args.save_dir, para_name), ctx=ctx)
 
     for epoch_id in range(1):

@@ -45,7 +45,7 @@ It gets validation accuracy of `88.7% <https://raw.githubusercontent.com/dmlc/we
 It gets RTE validation accuracy of `70.8% <https://raw.githubusercontent.com/dmlc/web-data/master/gluonnlp/logs/bert/finetuned_rte.log>`_
 , whereas the the original Tensorflow implementation give evaluation results 66.4%.
 
-Use the following command to make inference of fine-tuned BERT model for classification on the GLUE(MRPC) dataset.
+Use the following command to make inference of fine-tuned BERT model for classification on the MRPC dataset.
 
 .. code-block:: console
 

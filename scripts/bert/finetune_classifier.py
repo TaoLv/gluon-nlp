@@ -417,7 +417,7 @@ def inference(metric):
                     metric_val = [metric_val]
                 eval_str = '[Epoch {} Batch {}/{}] loss={:.4f}, metrics=' + \
                     ','.join([i + ':{:.4f}' for i in metric_nm])
-                logging.info(eval_str.format(epoch_id + 1, batch_id + 1, len(train_data), \
+                logging.info(eval_str.format(epoch_id + 1, batch_id + 1, len(dev_data), \
                     step_loss / args.log_interval, \
                     *metric_val,))
                 step_loss = 0

@@ -138,7 +138,7 @@ parser.add_argument(
 parser.add_argument(
     '--save_dir',
     type=str,
-    default='out_dir',
+    default='model/',
     help='directory path to save the final model.'
 )
 parser.add_argument(
@@ -374,7 +374,8 @@ def train(metric):
         if task_name in ['MRPC']:
             validation_acc = metric.get()[1][0]
             if validation_acc > best_acc:
-                save_path = os.path.join(args.save_dir, 'MRPC_valid_best.params')
+                file_name = 'MRPC_valid_best_{}.params'.format(args.max_len)
+                save_path = os.path.join(args.save_dir, file_name)
                 model.save_parameters(save_path)
                 best_acc = validation_acc
                 logging.info('the best acc is updata, and valid_best params saved as:{}'.format(save_path))
@@ -384,18 +385,22 @@ def inference(metric):
     """inference function."""
 
     logging.info('|----- Now we are doing BERT inference at {} !'.format(ctx))
-    model = BERTClassifier(
-        bert, dropout=0.1, num_classes=len(task.get_labels()))
-    para_name = 'MRPC_valid_best.params'
+    model = BERTClassifier(bert, dropout=0.1, num_classes=len(task.get_labels()))
+    para_name = 'MRPC_valid_best_{}.params'.format(args.max_len)
     model.load_parameters(os.path.join(args.save_dir, para_name), ctx=ctx)
+
+    is_profiler_on = os.getenv('GLUONNLP_BERT_PROFILING', False)
+    if is_profiler_on:
+        mx.profiler.set_config(profile_symbolic=True, profile_imperative=True, profile_memory=False,
+                               profile_api=False, filename='profile.json', aggregate_stats=True)
+        mx.profiler.set_state('run')
 
     for epoch_id in range(1):
         metric.reset()
         step_loss = 0
         tic = time.time()
 
-        for batch_id, seqs in enumerate(train_data):
-
+        for batch_id, seqs in enumerate(dev_data):
             input_ids, valid_length, type_ids, label = seqs
             out = model(
                 input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
@@ -421,6 +426,10 @@ def inference(metric):
 
         toc = time.time()
         logging.info('Time cost={:.1f}s'.format(toc - tic))
+
+    if is_profiler_on:
+        mx.profiler.set_state('stop')
+        print(mx.profiler.dumps())
 
 
 if __name__ == '__main__':

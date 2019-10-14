@@ -160,7 +160,7 @@ else:
     raise ValueError('unknown task: %s'%args.task)
 
 if args.model_parameters:
-    net.load_parameters(args.model_parameters)
+    net.load_parameters(args.model_parameters, ignore_extra=True)
 else:
     net.initialize()
     warnings.warn('--model_parameters is not provided. The parameter checkpoint (.params) '

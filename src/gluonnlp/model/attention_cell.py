@@ -164,8 +164,12 @@ class AttentionCell(HybridBlock):
             return super(AttentionCell, self).forward(query, key, value, mask)
 
     def hybrid_forward(self, F, query, key, value, mask=None):  # pylint: disable=arguments-differ
-        att_weights = self._compute_weight(F, query, key, mask)
-        context_vec = self._read_by_weight(F, att_weights, value)
+        if self._compute_and_read_by_weight:
+            context_vec, att_weights = self._compute_and_read_by_weight(F, query, key, value, mask)
+        else:
+            att_weights = self._compute_weight(F, query, key, mask)
+            context_vec = self._read_by_weight(F, att_weights, value)
+
         return context_vec, att_weights
 
 
@@ -209,20 +213,25 @@ class MultiHeadAttentionCell(AttentionCell):
         self._base_cell = base_cell
         self._num_heads = num_heads
         self._use_bias = use_bias
-        units = {'query': query_units, 'key': key_units, 'value': value_units}
-        for name, unit in units.items():
+        self._units = {'query': query_units, 'key': key_units, 'value': value_units}
+        for name, unit in self._units.items():
             if unit % self._num_heads != 0:
                 raise ValueError(
                     'In MultiHeadAttetion, the {name}_units should be divided exactly'
                     ' by the number of heads. Received {name}_units={unit}, num_heads={n}'.format(
                         name=name, unit=unit, n=num_heads))
             setattr(self, '_{}_units'.format(name), unit)
+            # with self.name_scope():
+            #     setattr(
+            #         self, 'proj_{}'.format(name),
+            #         nn.Dense(units=unit, use_bias=self._use_bias, flatten=False,
+            #                  weight_initializer=weight_initializer,
+            #                  bias_initializer=bias_initializer, prefix='{}_'.format(name)))
+        if (query_units == key_units) and (query_units == value_units):
             with self.name_scope():
-                setattr(
-                    self, 'proj_{}'.format(name),
-                    nn.Dense(units=unit, use_bias=self._use_bias, flatten=False,
-                             weight_initializer=weight_initializer,
-                             bias_initializer=bias_initializer, prefix='{}_'.format(name)))
+                self.proj_qkv = nn.Dense(units=query_units * 3, use_bias=self._use_bias, flatten=False,
+                                         weight_initializer=weight_initializer,
+                                         bias_initializer=bias_initializer, prefix='qkv_')
 
     def __call__(self, query, key, value=None, mask=None):
         """Compute the attention.
@@ -278,6 +287,33 @@ class MultiHeadAttentionCell(AttentionCell):
                                                       reverse=True),
                                   axes=(0, 2, 1, 3)).reshape(shape=(0, 0, -1))
         return context_vec
+
+    def _compute_and_read_by_weight(self, F, query, key, value, mask=None):
+        if (query is key) and (query is value) and hasattr(self, 'proj_qkv'):
+            qkv = self.proj_qkv(query)
+        else:
+            query = getattr(self, 'proj_{}'.format('query'))(query)
+            key = getattr(self, 'proj_{}'.format('key'))(key)
+            value = getattr(self, 'proj_{}'.format('value'))(value)
+            qkv = F.concat(query, key, value, dim=-1)
+
+        out = F.reshape(qkv, shape=(0, 0, 3, self._num_heads, -1))
+        out = F.reshape(out, shape=(-1, 0, 0, 0), reverse=True)
+        out = F.transpose(out, axes=(1, 2, 0, 3))
+        q, k, v = F.split(out, num_outputs=3, axis=0, squeeze_axis=True)
+
+        if mask is not None:
+            mask = F.broadcast_axis(F.expand_dims(mask, axis=1),
+                                    axis=1, size=self._num_heads)\
+                    .reshape(shape=(-1, 0, 0), reverse=True)
+        att_ = self._base_cell._compute_weight(F, q, k, mask)
+        att_weights = F.reshape(att_, shape=(-1, self._num_heads, 0, 0), reverse=True)
+        # att = att_weights.reshape(shape=(-1, 0, 0), reverse=True)
+        context_vec = self._base_cell._read_by_weight(F, att_, v)
+        context_vec = F.transpose(context_vec.reshape(shape=(-1, self._num_heads, 0, 0),
+                                                      reverse=True),
+                                  axes=(0, 2, 1, 3)).reshape(shape=(0, 0, -1))
+        return context_vec, att_weights
 
 
 class MLPAttentionCell(AttentionCell):
